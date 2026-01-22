@@ -61,6 +61,45 @@ This skill scans Azure Function Apps from **any source** (GitHub repos, Azure-ho
 
 ---
 
+## Workspace Structure for Upgrades
+
+When applying upgrades to a GitHub or Azure DevOps repository, clone the target repo into the `upgrades/` folder using **date-based naming**:
+
+```
+FuncForward/                              ← Main workspace
+├── .github/
+│   └── skills/SKILL.md
+├── .gitignore                            ← Contains: upgrades/
+├── GOAL.md
+├── scan-report.md                        ← Generated scan report
+└── upgrades/                             ← Git-ignored folder for cloned repos
+    └── {repo-name}-{YYYYMMDD}/           ← Date-based folder name
+        ├── scan-report.md                ← Copy of report (included in PR)
+        ├── host.json                     ← Modified files
+        ├── package.json
+        ├── src/functions/                ← v4 structure
+        └── ...
+```
+
+### Folder Naming Convention
+
+Use date-based naming: `{repo-name}-{YYYYMMDD}`
+
+Examples:
+- `OutdatedFunctionApp-20260122`
+- `my-function-app-20260122`
+
+If same repo scanned multiple times on same day, append time: `{repo-name}-{YYYYMMDD}-{HHMM}`
+
+### Include Scan Report in PR
+
+When creating a PR, **copy the `scan-report.md` into the cloned repository root** so it:
+1. Becomes part of the commit history
+2. Can be used as the PR description
+3. Provides permanent documentation of what was changed and why
+
+---
+
 ## Scanning Capabilities
 
 ### 1. Language Runtime Version
@@ -220,15 +259,18 @@ Scan Azure deployment or infrastructure files for the current hosting plan:
 2. Create upgrade branch:
    git checkout -b azure-functions-upgrade
 
-3. Apply code changes to files
+3. Copy scan-report.md into cloned repo:
+   Copy-Item scan-report.md upgrades/{repo-name}-{date}/
 
-4. Commit changes:
+4. Apply code changes to files
+
+5. Commit changes (including scan-report.md):
    git add .
    git commit -m "Upgrade Azure Functions to latest standards"
 
-5. Push and create PR:
+6. Push and create PR:
    git push origin azure-functions-upgrade
-   gh pr create --title "Azure Functions Upgrade" --body "$(cat scan-report.md)"
+   gh pr create --title "Azure Functions Upgrade" --body-file scan-report.md
 ```
 
 ---
@@ -616,3 +658,102 @@ Reference samples for Flex Consumption deployment:
 | `infra/*.json` | ARM templates |
 | `*.tf` | Terraform configurations |
 | `function.json` | Legacy programming model indicator |
+
+---
+
+## Post-PR Cleanup
+
+After a Pull Request is created and merged, prompt the user for cleanup:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                      POST-PR CLEANUP                              │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  ✅ Pull Request successfully created/merged!                     │
+│                                                                   │
+│  PR: https://github.com/{owner}/{repo}/pull/{number}             │
+│                                                                   │
+│  The following upgrade folder exists in your workspace:           │
+│                                                                   │
+│  📁 upgrades/{repo-name}-{YYYYMMDD}/                              │
+│                                                                   │
+│  Would you like to clean up this folder?                          │
+│                                                                   │
+│  [Y] Yes, delete the folder                                       │
+│  [N] No, keep it for reference                                    │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Cleanup Commands
+
+```powershell
+# PowerShell cleanup
+Remove-Item -Path "upgrades/{repo-name}-{YYYYMMDD}" -Recurse -Force
+
+# Or clean all upgrades
+Remove-Item -Path "upgrades/*" -Recurse -Force
+```
+
+### When to Suggest Cleanup
+
+1. **After PR is created** - Remind user the folder exists
+2. **After PR is merged** - Suggest cleanup since changes are now in the target repo
+3. **On next scan** - If old upgrade folders exist, offer to clean them up
+
+---
+
+## Complete Workflow Summary
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 FUNCFORWARD COMPLETE WORKFLOW                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. USER REQUEST                                                 │
+│     └── "Scan https://github.com/owner/repo"                    │
+│                                                                  │
+│  2. FETCH BEST PRACTICES                                         │
+│     └── Call mcp_azure_mcp_get_bestpractices                    │
+│                                                                  │
+│  3. FETCH SUPPORTED VERSIONS                                     │
+│     └── Fetch from official docs                                │
+│                                                                  │
+│  4. SCAN SOURCE (via raw GitHub URLs)                           │
+│     ├── host.json                                               │
+│     ├── package.json / *.csproj / requirements.txt              │
+│     ├── infra/*.bicep                                           │
+│     └── function.json files                                     │
+│                                                                  │
+│  5. GENERATE REPORT                                              │
+│     └── Create scan-report.md in workspace root                 │
+│                                                                  │
+│  6. USER SELECTS UPGRADE OPTION                                  │
+│     └── [1] Create PR                                           │
+│                                                                  │
+│  7. CLONE TO WORKSPACE                                           │
+│     └── Clone to upgrades/{repo}-{YYYYMMDD}/                    │
+│                                                                  │
+│  8. APPLY CHANGES                                                │
+│     ├── Copy scan-report.md to cloned repo                      │
+│     ├── Update host.json                                        │
+│     ├── Update package.json                                     │
+│     ├── Migrate to v4 programming model                         │
+│     ├── Update infra/main.bicep                                 │
+│     └── Delete legacy function.json files                       │
+│                                                                  │
+│  9. CREATE BRANCH & COMMIT                                       │
+│     ├── git checkout -b azure-functions-upgrade                 │
+│     ├── git add .                                               │
+│     └── git commit -m "Upgrade Azure Functions..."              │
+│                                                                  │
+│ 10. PUSH & CREATE PR                                             │
+│     ├── git push origin azure-functions-upgrade                 │
+│     └── gh pr create --body-file scan-report.md                 │
+│                                                                  │
+│ 11. POST-PR CLEANUP (after merge)                                │
+│     └── Prompt user to delete upgrades/{repo}-{YYYYMMDD}/       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
